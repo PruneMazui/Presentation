@@ -424,6 +424,10 @@ foreach($char_list as $title => $char)
 
 ---
 
+## ここまで書いて力尽きました！！！！
+
+---
+
 ## ISO-2022-JP
 
 * メールの送受信で使われる
@@ -436,7 +440,9 @@ foreach($char_list as $title => $char)
 
  ---
 
-### エスケープ
+ ---
+
+### エスケープシーケンス
 
 ---
 
@@ -450,17 +456,26 @@ foreach($char_list as $title => $char)
 
 ## UTF-8
 
+* ASCIIの完全上位互換と言われる
+
 ---
 
 ## UTF-16
+
+* Unicode と言って文字コードを指していたら大抵の場合これ
 
 ---
 
 ## その他 Unicode系
 
+* UTF-7
+* UTF-32
+
 ---
 
 ## まとめ
+
+文字コードと文字集合は区別しましょう！
 
 ---
 
