@@ -227,9 +227,11 @@ while (true) {
 3 : 5a55abe1024f96813ea2cf598befd08a
 ```
 
-今度は正しく取ることができました。実は libmysql は PHP の外でメモリを使っていて結果を PHP の変数に代入するまでは PHP 側のメモリ使用量にカウントされない為、バッファクエリモードでも正しく動作します。
+今度は正しく取ることができました。実は libmysql は PHP の外でメモリを使っていて結果を PHP の変数に代入するまでは PHP 側のメモリ使用量にカウントされない為、バッファクエリモードでも正しく動作します。（但しOS側のメモリを使って結果をドンッとメモリに乗せていることは変わらないので、OOM Killerとか cannot allocate memory は気にしないといけないです）
 
 ![img01](img01.png)
+
+※画像は[こちら](http://d.hatena.ne.jp/do_aki/20111214/1323831558)より転用させていただきました。
 
 上記の図の通り、mysqlnd は ZendEngine の中で、libmysql は外で動作しています。なのでメモリの管理が変わるということですね。
 
@@ -281,8 +283,6 @@ while (true) {
 
 取ってきた値を使ってDBに対して何かしようとする場合、別の方法を考えないといけないです。
 
-libmysql 使えば気にしなくていいのですが、これのためだけにそちらを採用するのはちょっと・・・
-トランザクションを気にしなくていい状況なら $db とは別のコネクションを作ってしまうのもあり？
 
 # 最終手段
 
@@ -298,12 +298,12 @@ libmysql 使えば気にしなくていいのですが、これのためだけ�
 $db = new PDO('mysql:host=localhost;dbname=sample_database', 'root', '');
 
 $limit = 1000;
-$offset = 0;
+$last_id = 0;
 
 $db->beginTransaction();
 try {
     while (true) {
-        $stmt = $db->query("SELECT * FROM sample_table LIMIT {$limit} OFFSET {$offset}");
+        $stmt = $db->query("SELECT * FROM sample_table WHERE id > {$last_id} ORDER BY id LIMIT {$limit}");
 
         $rowset = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -313,10 +313,10 @@ try {
 
         foreach($rowset as $row) {
             // ～～～ 何らかの処理 ～～～
-        }
 
-        // 次回のクエリは1001件目からスタート
-        $offset += $limit;
+            // 次回のクエリはidの最後の値からスタートするようにする
+            $last_id = $row['id'];
+        }
     }
 
     $db->commit();
@@ -326,38 +326,7 @@ try {
 }
 ```
 
-この時トランザクションをかけていますが、SELECT の結果と UPDATE 内容の一貫性を保ちたい場合トランザクション分離レベルとファントムリードを気にしないといけません。MySQLのデフォルトの状態ではREPEATABLE READで、MySQLに限りREPEATABLE READでもファントムリードは発生しないので気にしなくてもいいっちゃいいのですが。
+主キーを元に順番に処理していくイメージです。
+LIMIT ～ OFFSET ～ でも同様のことができますが、OFFSET は最初から読み込んで捨てる動作となるのでパフォーマンスがよくないです。
 
-### （おまけ）ジェネレーターでfetchAll風な処理
-
-```php
-<?php
-$db = new PDO('mysql:host=localhost;dbname=sample_database', 'root', '');
-
-$fetchAll = function ($sql) use ($db) {
-    $limit = 1000;
-    $offset = 0;
-
-    while (true) {
-        $stmt = $db->query("{$sql} LIMIT {$limit} OFFSET {$offset}");
-
-        $rowset = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if(! $rowset) {
-            break;
-        }
-
-        foreach($rowset as $row) {
-            yield $row;
-        }
-
-        // 次回のクエリは1001件目からスタート
-        $offset += $limit;
-    }
-};
-
-
-foreach($fetchAll("SELECT * FROM sample_table") as $row) {
-    // ～～～ 何らかの処理 ～～～
-}
-```
+また、この時トランザクションをかけていますが、SELECT の結果と UPDATE 内容の一貫性を保ちたい場合トランザクション分離レベルとファントムリードを気にしないといけません。~~MySQLのデフォルトの状態ではREPEATABLE READで、MySQLに限りREPEATABLE READでもファントムリードは発生しないので気にしなくてもいいっちゃいいのですが。~~と、思っていたのですが直列化可能ではないので読み込みが巻き戻る可能性があります。（ファントムリードが発生しないのは最初のセレクト時のスナップショットを参照しているためファントムリードが起こらないだけ）なので、一貫性を保ちたい場合は Serializable にするか SELECT FOR UPDATE が必要です。
